@@ -1,0 +1,19 @@
+{
+  "class_names": [
+    "HELLO",
+    "HELP",
+    "HOW ARE YOU",
+    "I AM FINE",
+    "NO",
+    "PLEASE REPEAT",
+    "SLOW DOWN",
+    "THANK YOU",
+    "YES"
+  ],
+  "input_shape": [
+    null,
+    30,
+    225
+  ],
+  "num_classes": 9
+}
