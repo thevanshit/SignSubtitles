@@ -45,15 +45,15 @@ export default function MeetingPage() {
       <div className="max-w-3xl mx-auto px-6 py-12">
         {/* Header */}
         <header className="flex items-center justify-between mb-16 animate-fade-in-up">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             <div className="relative">
-              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect width="48" height="48" rx="12" fill="#0a0a0a"/>
-                <path d="M24 10C24 10 32 15 32 23C32 26.5 30 29.2 27 30.5V34C27 35.7 25.7 37 24 37C22.3 37 21 35.7 21 34V30.5C17.5 29.2 15 26.5 15 23C15 15 24 10 24 10Z" fill="white"/>
-                <path d="M18 34V38C18 39.7 19.3 41 21 41H23V36" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M24 37V41H26V37" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M28 34V41H30C31.7 41 33 39.7 33 38V34" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+              <img
+                src="/logo.jpeg"
+                alt="ISHARA Logo"
+                width={48}
+                height={48}
+                className="rounded-xl object-cover"
+              />
               <div className={`absolute -top-1 -right-1 w-3 h-3 rounded-full transition-colors duration-300 ${isRunning ? 'bg-green-500' : 'bg-gray-300'}`} />
             </div>
             <div>
