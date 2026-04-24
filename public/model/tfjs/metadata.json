@@ -1,0 +1,21 @@
+{
+  "class_names": [
+    "HELLO",
+    "HRU",
+    "FINE",
+    "YES",
+    "NO",
+    "HELP",
+    "THANK",
+    "PLEASE",
+    "SLOW",
+    "NICE"
+  ],
+  "input_shape": [
+    null,
+    30,
+    63
+  ],
+  "num_classes": 10,
+  "feature_type": "hand_landmarks"
+}

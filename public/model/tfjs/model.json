@@ -1,0 +1,143 @@
+{
+  "format": "layers-model",
+  "generatedBy": "keras v2.15.0",
+  "convertedBy": "tensorflowjs",
+  "backend": "tensorflow",
+  "keras_version": "2.15.0",
+  "modelTopology": {
+    "class_name": "Sequential",
+    "config": {
+      "name": "sequential",
+      "layers": [
+        {
+          "class_name": "InputLayer",
+          "config": {
+            "dtype": "float32",
+            "batch_input_shape": [null, 30, 63],
+            "name": "lstm_input",
+            "ragged": false,
+            "sparse": false
+          },
+          "name": "lstm_input",
+          "inbound_nodes": []
+        },
+        {
+          "class_name": "LSTM",
+          "config": {
+            "activation": "tanh",
+            "bias_regularizer": null,
+            "dropout": 0.2,
+            "name": "lstm",
+            "recurrent_activation": "sigmoid",
+            "recurrent_dropout": 0.0,
+            "return_sequences": false,
+            "return_state": false,
+            "time_major": false,
+            "trainable": true,
+            "unroll": false,
+            "units": 64,
+            "use_bias": true
+          },
+          "name": "lstm",
+          "inbound_nodes": [["lstm_input", 0, 0]]
+        },
+        {
+          "class_name": "Dropout",
+          "config": {
+            "dropout_rate": 0.2,
+            "name": "dropout",
+            "noise_shape": null,
+            "seed": null,
+            "trainable": true
+          },
+          "name": "dropout",
+          "inbound_nodes": [["lstm", 0, 0, {"training": true}]]
+        },
+        {
+          "class_name": "Dense",
+          "config": {
+            "activation": "relu",
+            "bias_regularizer": null,
+            "kernel_regularizer": null,
+            "name": "dense",
+            "trainable": true,
+            "units": 32,
+            "use_bias": true
+          },
+          "name": "dense",
+          "inbound_nodes": [["dropout", 0, 0, {}]]
+        },
+        {
+          "class_name": "Dropout",
+          "config": {
+            "dropout_rate": 0.2,
+            "name": "dropout_1",
+            "noise_shape": null,
+            "seed": null,
+            "trainable": true
+          },
+          "name": "dropout_1",
+          "inbound_nodes": [["dense", 0, 0, {"training": true}]]
+        },
+        {
+          "class_name": "Dense",
+          "config": {
+            "activation": "softmax",
+            "bias_regularizer": null,
+            "kernel_regularizer": null,
+            "name": "dense_1",
+            "trainable": true,
+            "units": 10,
+            "use_bias": true
+          },
+          "name": "dense_1",
+          "inbound_nodes": [["dropout_1", 0, 0, {}]]
+        }
+      ]
+    }
+  },
+  "weightsManifest": [
+    {
+      "paths": ["lstm_weight0.bin"],
+      "weights": [
+        {"name": "lstm/kernel", "shape": [63, 256], "dtype": "float32"}
+      ]
+    },
+    {
+      "paths": ["lstm_weight1.bin"],
+      "weights": [
+        {"name": "lstm/recurrent_kernel", "shape": [64, 256], "dtype": "float32"}
+      ]
+    },
+    {
+      "paths": ["lstm_weight2.bin"],
+      "weights": [
+        {"name": "lstm/bias", "shape": [256], "dtype": "float32"}
+      ]
+    },
+    {
+      "paths": ["dense_weight0.bin"],
+      "weights": [
+        {"name": "dense/kernel", "shape": [64, 32], "dtype": "float32"}
+      ]
+    },
+    {
+      "paths": ["dense_weight1.bin"],
+      "weights": [
+        {"name": "dense/bias", "shape": [32], "dtype": "float32"}
+      ]
+    },
+    {
+      "paths": ["dense_1_weight0.bin"],
+      "weights": [
+        {"name": "dense_1/kernel", "shape": [32, 10], "dtype": "float32"}
+      ]
+    },
+    {
+      "paths": ["dense_1_weight1.bin"],
+      "weights": [
+        {"name": "dense_1/bias", "shape": [10], "dtype": "float32"}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "lstm": [
+    {
+      "shape": [
+        63,
+        256
+      ],
+      "dtype": "float32"
+    },
+    {
+      "shape": [
+        64,
+        256
+      ],
+      "dtype": "float32"
+    },
+    {
+      "shape": [
+        256
+      ],
+      "dtype": "float32"
+    }
+  ],
+  "dense": [
+    {
+      "shape": [
+        64,
+        32
+      ],
+      "dtype": "float32"
+    },
+    {
+      "shape": [
+        32
+      ],
+      "dtype": "float32"
+    }
+  ],
+  "dense_1": [
+    {
+      "shape": [
+        32,
+        10
+      ],
+      "dtype": "float32"
+    },
+    {
+      "shape": [
+        10
+      ],
+      "dtype": "float32"
+    }
+  ]
+}

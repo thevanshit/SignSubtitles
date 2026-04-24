@@ -2,20 +2,19 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as tf from '@tensorflow/tfjs';
-import { HandLandmarker, PoseLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
+import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import metadata from '../public/model/metadata.json';
 
 const SEQUENCE_LENGTH = 30;
-const FEATURES_PER_FRAME = 225;
-const MIN_FRAMES_FOR_PREDICTION = 30; // Must be exactly 30 for model
+const MIN_FRAMES_FOR_PREDICTION = 30;
 const PHRASES = metadata.class_names as string[];
 
 const PREDICTION_WINDOW_SIZE = 10;
-const STABILITY_THRESHOLD = 8;
-const CONFIDENCE_THRESHOLD = 0.5;
-const PREDICTION_COOLDOWN = 800;
+const MIN_CONFIDENCE = 0.5;
+const SCALER_MEAN = metadata.scaler_mean as number[];
+const SCALER_STD = metadata.scaler_std as number[];
 
-export interface SignPrediction {
+interface SignPrediction {
   phrase: string;
   confidence: number;
 }
@@ -26,18 +25,8 @@ export interface UseSignInferenceOptions {
   fps?: number;
 }
 
-function getMostFrequent(arr: string[]): string {
-  const freq: Record<string, number> = {};
-  arr.forEach(v => {
-    freq[v] = (freq[v] || 0) + 1;
-  });
-  return Object.keys(freq).reduce((a, b) =>
-    freq[a] > freq[b] ? a : b
-  );
-}
-
 export function useSignInference(options: UseSignInferenceOptions = {}) {
-  const { onPrediction, minConfidence = CONFIDENCE_THRESHOLD, fps = 10 } = options;
+  const { onPrediction, minConfidence = MIN_CONFIDENCE, fps = 10 } = options;
 
   const [isLoading, setIsLoading] = useState(true);
   const [isRunning, setIsRunning] = useState(false);
@@ -46,162 +35,68 @@ export function useSignInference(options: UseSignInferenceOptions = {}) {
   const [handDetected, setHandDetected] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const handLandmarkerRef = useRef<HandLandmarker | null>(null);
-  const poseLandmarkerRef = useRef<PoseLandmarker | null>(null);
   const modelRef = useRef<tf.LayersModel | null>(null);
   const frameBufferRef = useRef<number[]>([]);
   const rafRef = useRef<number | null>(null);
   const lastProcessRef = useRef<number>(0);
   const processInterval = 1000 / fps;
 
-  const predictionWindowRef = useRef<string[]>([]);
-  const stabilityCountRef = useRef(0);
-  const lastStablePredictionRef = useRef('');
-  const lastPredictionTimeRef = useRef(0);
+  const predictionHistoryRef = useRef<{ idx: number; conf: number }[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const frameCountRef = useRef(0);
+  const handLandmarkerRef = useRef<HandLandmarker | null>(null);
+  const lastTimestampRef = useRef<number>(0);
 
-  const init = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+  const extractLandmarks = useCallback((video: HTMLVideoElement, timestamp: number): number[] => {
+    const landmarker = handLandmarkerRef.current;
+    if (!landmarker) {
+      console.log('Landmarker not initialized');
+      return new Array(63).fill(0);
+    }
 
     try {
-      console.log('Loading MediaPipe and TensorFlow.js models...');
-
-      const vision = await FilesetResolver.forVisionTasks(
-        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
-      );
-
-      handLandmarkerRef.current = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
-          delegate: 'GPU',
-        },
-        runningMode: 'VIDEO',
-        numHands: 2,
-      });
-
-      poseLandmarkerRef.current = await PoseLandmarker.createFromOptions(vision, {
-        baseOptions: {
-          modelAssetPath:
-            'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
-          delegate: 'GPU',
-        },
-        runningMode: 'VIDEO',
-        numPoses: 1,
-      });
-
-      modelRef.current = await tf.loadLayersModel('/model/model.json');
-
-      // CHECKPOINT 1: Model loaded
-      console.log('✅ CHECKPOINT 1 - Model loaded:', !!modelRef.current);
-      console.log('   Model input shape:', modelRef.current.inputs[0].shape);
-      console.log('   Classes:', PHRASES);
-
-      setIsLoading(false);
-    } catch (err) {
-      console.error('Initialization error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to initialize models');
-      setIsLoading(false);
+      const results = landmarker.detectForVideo(video, timestamp);
+      if (results.landmarks && results.landmarks.length > 0) {
+        const hand = results.landmarks[0];
+        const coords = hand.flatMap((lm) => [lm.x, lm.y, lm.z]);
+        setHandDetected(true);
+        return coords;
+      }
+    } catch (e) {
+      console.error('Landmark error:', e);
     }
+
+    setHandDetected(false);
+    return new Array(63).fill(0);
   }, []);
 
-  const extractFeatures = useCallback(
-    (timestamp: number): number[] => {
-      const hand = handLandmarkerRef.current;
-      const pose = poseLandmarkerRef.current;
-      const video = videoRef.current;
-
-      if (!hand || !pose || !video) return new Array(FEATURES_PER_FRAME).fill(0);
-
-      const handResults = hand.detectForVideo(video, timestamp);
-      const poseResults = pose.detectForVideo(video, timestamp);
-
-      const handDetectedNow = !!(handResults.landmarks && handResults.landmarks.length > 0);
-      const poseDetectedNow = !!(poseResults.landmarks && poseResults.landmarks.length > 0);
-
-      setHandDetected(handDetectedNow);
-
-      const poseFeatures: number[] = poseDetectedNow
-        ? poseResults.landmarks![0].flatMap((lm) => [lm.x, lm.y, lm.z ?? 0])
-        : new Array(99).fill(0);
-
-      let leftHandFeatures: number[] = new Array(63).fill(0);
-      if (handResults.landmarks && handResults.landmarks.length > 0 && handResults.handednesses) {
-        const leftIdx = handResults.handednesses.findIndex((h) => h[0]?.categoryName === 'Left');
-        if (leftIdx >= 0) {
-          leftHandFeatures = handResults.landmarks[leftIdx].flatMap((lm) => [lm.x, lm.y, lm.z ?? 0]);
-        }
-      }
-
-      let rightHandFeatures: number[] = new Array(63).fill(0);
-      if (handResults.landmarks && handResults.landmarks.length > 0 && handResults.handednesses) {
-        const rightIdx = handResults.handednesses.findIndex((h) => h[0]?.categoryName === 'Right');
-        if (rightIdx >= 0) {
-          rightHandFeatures = handResults.landmarks[rightIdx].flatMap((lm) => [lm.x, lm.y, lm.z ?? 0]);
-        }
-      }
-
-      const allFeatures = [...poseFeatures, ...leftHandFeatures, ...rightHandFeatures];
-
-      if (allFeatures.length !== FEATURES_PER_FRAME) {
-        console.log('❌ CHECKPOINT 2 - Keypoints length MISMATCH:', allFeatures.length, 'expected:', FEATURES_PER_FRAME);
-        return new Array(FEATURES_PER_FRAME).fill(0);
-      }
-
-      // Log detection status
-      if (handDetectedNow || poseDetectedNow) {
-        console.log('📷 Frame:', handDetectedNow ? '👋' : '', poseDetectedNow ? '🏃' : '', '| Features:', allFeatures.length);
-      }
-
-      return allFeatures;
-    },
-    []
-  );
-
-  const predict = useCallback(() => {
-    const model = modelRef.current;
-
-    // CHECKPOINT 1 (inside predict): Verify model exists
-    if (!model) {
-      console.log('❌ Model is null!');
-      return;
+  const normalizeFeatures = useCallback((features: number[]): number[] => {
+    const normalized: number[] = [];
+    for (let i = 0; i < 63; i++) {
+      const val = (features[i] - (SCALER_MEAN[i] || 0)) / (SCALER_STD[i] || 1);
+      normalized.push(val);
     }
+    return normalized;
+  }, []);
+
+  const predict = useCallback(async () => {
+    const model = modelRef.current;
+    if (!model) return;
 
     const bufferLength = frameBufferRef.current.length;
-    const minLength = MIN_FRAMES_FOR_PREDICTION * FEATURES_PER_FRAME;
+    const minLength = MIN_FRAMES_FOR_PREDICTION * 63;
 
-    // CHECKPOINT 3: Buffer fill status (lower threshold for faster response)
-    if (bufferLength < minLength) {
-      if (bufferLength % 225 === 0) {
-        console.log('❌ CHECKPOINT 3 - Buffer filling:', bufferLength, '/', minLength, '(need', MIN_FRAMES_FOR_PREDICTION, 'frames)');
-      }
-      return;
-    }
+    if (bufferLength < minLength) return;
 
-    console.log('✅ CHECKPOINT 3 - Buffer ready:', bufferLength, '/', minLength, '(' + Math.floor(bufferLength/225) + 'frames)');
-
-    // Use exactly SEQUENCE_LENGTH frames (must be 30 for model)
-    const frames = SEQUENCE_LENGTH;
-    const featureCount = frames * FEATURES_PER_FRAME;
-    
-    // Get the last 30 frames from buffer
+    const featureCount = SEQUENCE_LENGTH * 63;
     const startIdx = Math.max(0, bufferLength - featureCount);
     const sequenceSlice = frameBufferRef.current.slice(startIdx, startIdx + featureCount);
-    const sequence = new Float32Array(sequenceSlice);
 
-    console.log('🎬 Processing:', frames, 'frames for prediction (startIdx:', startIdx, ')');
+    if (sequenceSlice.length < featureCount) return;
 
-    // FIXED: Use proper tensor creation with expandDims for batch dimension
-    // Must be exactly [1, 30, 225]
-    const inputTensor = tf.tensor(Array.from(sequence), [frames, FEATURES_PER_FRAME]);
+    const inputTensor = tf.tensor2d(Array.from(sequenceSlice), [SEQUENCE_LENGTH, 63]);
     const input = inputTensor.expandDims(0);
 
-    // CHECKPOINT 4: Input shape verification
-    console.log('✅ CHECKPOINT 4 - Input shape:', input.shape);
-    console.log('   ===> MUST BE ===> [1, 30, 225]');
-
-    console.log('🔮 Running model.predict()...');
     const prediction = model.predict(input) as tf.Tensor;
     const probs = new Float32Array(prediction.dataSync());
 
@@ -214,69 +109,41 @@ export function useSignInference(options: UseSignInferenceOptions = {}) {
       }
     }
 
-    const rawPrediction = PHRASES[maxIdx] || 'UNKNOWN';
     const confidence = maxProb;
 
-    // CHECKPOINT 5: Prediction result with histogram
-    const top3 = Array.from(probs)
-      .map((p, i) => ({ prob: p, name: PHRASES[i] || 'Class' + i }))
-      .sort((a, b) => b.prob - a.prob)
-      .slice(0, 3)
-      .map(x => `${x.name}:${(x.prob*100).toFixed(0)}%`);
-    
-    console.log('✅ CHECKPOINT 5 - Prediction result:');
-    console.log('   Index:', maxIdx, '| Word:', rawPrediction, '| Conf:', (confidence * 100).toFixed(1) + '%');
-    console.log('   Top 3:', top3.join(' | '));
+    if (confidence > minConfidence) {
+      predictionHistoryRef.current.push({ idx: maxIdx, conf: confidence });
+    }
+
+    if (predictionHistoryRef.current.length > PREDICTION_WINDOW_SIZE) {
+      predictionHistoryRef.current.shift();
+    }
+
+    const history = predictionHistoryRef.current;
+    if (history.length < 3) return;
+
+    const freq: Record<number, number> = {};
+    let maxCount = 0;
+    let smoothedIdx = history[0].idx;
+
+    for (const h of history) {
+      freq[h.idx] = (freq[h.idx] || 0) + 1;
+      if (freq[h.idx] > maxCount) {
+        maxCount = freq[h.idx];
+        smoothedIdx = h.idx;
+      }
+    }
+
+    if (maxCount >= 3 && smoothedIdx >= 0 && smoothedIdx < PHRASES.length) {
+      const phrase = PHRASES[smoothedIdx];
+      console.log('Predicted:', phrase, 'conf:', confidence.toFixed(2));
+      setCurrentPrediction({ phrase, confidence });
+      onPrediction?.({ phrase, confidence });
+    }
 
     input.dispose();
     inputTensor.dispose();
     prediction.dispose();
-
-    const now = Date.now();
-
-    if (confidence >= minConfidence) {
-      predictionWindowRef.current.push(rawPrediction);
-      if (predictionWindowRef.current.length > PREDICTION_WINDOW_SIZE) {
-        predictionWindowRef.current.shift();
-      }
-
-      const smoothedPrediction = getMostFrequent(predictionWindowRef.current);
-
-      if (smoothedPrediction === lastStablePredictionRef.current) {
-        stabilityCountRef.current++;
-      } else {
-        stabilityCountRef.current = 1;
-        lastStablePredictionRef.current = smoothedPrediction;
-      }
-
-      console.log('📊 Stability:', stabilityCountRef.current, '/', STABILITY_THRESHOLD, '| Pred:', smoothedPrediction);
-
-      if (stabilityCountRef.current >= STABILITY_THRESHOLD && now - lastPredictionTimeRef.current > PREDICTION_COOLDOWN) {
-        console.log('🎯 FINAL SUBTITLE:', smoothedPrediction, 'Confidence:', (confidence * 100).toFixed(1) + '%');
-        const result: SignPrediction = {
-          phrase: smoothedPrediction,
-          confidence: confidence,
-        };
-        console.log('📺 SETTING SUBTITLE:', smoothedPrediction);
-        setCurrentPrediction(result);
-        onPrediction?.(result);
-        lastPredictionTimeRef.current = now;
-      }
-    } else {
-      console.log('⚠️ Low confidence:', (confidence * 100).toFixed(1) + '% (threshold:', (minConfidence * 100).toFixed(0) + '%)');
-      if (predictionWindowRef.current.length > 0) {
-        predictionWindowRef.current.shift();
-      }
-
-      if (predictionWindowRef.current.length === 0) {
-        stabilityCountRef.current = 0;
-        if (lastStablePredictionRef.current !== '') {
-          lastStablePredictionRef.current = '';
-          setCurrentPrediction(null);
-          onPrediction?.(null);
-        }
-      }
-    }
   }, [minConfidence, onPrediction]);
 
   const startCamera = useCallback(async (videoElement: HTMLVideoElement) => {
@@ -294,35 +161,51 @@ export function useSignInference(options: UseSignInferenceOptions = {}) {
       });
       await videoElement.play();
 
-      predictionWindowRef.current = [];
-      stabilityCountRef.current = 0;
-      lastStablePredictionRef.current = '';
-      lastPredictionTimeRef.current = 0;
+      console.log('Initializing MediaPipe HandLandmarker...');
+      
+      const wasmFileset = await FilesetResolver.forVisionTasks(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+      );
+      
+      const landmarker = await HandLandmarker.createFromOptions(wasmFileset, {
+        baseOptions: {
+          modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+          delegate: 'GPU'
+        },
+        runningMode: 'VIDEO',
+        numHands: 1
+      });
+      
+      handLandmarkerRef.current = landmarker;
+      console.log('MediaPipe HandLandmarker initialized!');
 
+      predictionHistoryRef.current = [];
+      frameBufferRef.current = [];
+      frameCountRef.current = 0;
+      lastTimestampRef.current = 0;
       setIsRunning(true);
       lastProcessRef.current = 0;
 
-      console.log('🎥 Camera started');
+      console.log('Camera started, processing landmarks...');
 
-      const processFrame = (timestamp: number) => {
+      const processFrame = async (timestamp: number) => {
         if (timestamp - lastProcessRef.current >= processInterval) {
           lastProcessRef.current = timestamp;
+          frameCountRef.current += 1;
 
-          const features = extractFeatures(timestamp);
+          if (videoRef.current) {
+            const features = extractLandmarks(videoRef.current, timestamp);
+            const normalized = normalizeFeatures(features);
+            frameBufferRef.current.push(...normalized);
 
-          frameBufferRef.current.push(...features);
-          const bufLen = frameBufferRef.current.length;
-          const maxFrames = SEQUENCE_LENGTH;
-          const minFrames = MIN_FRAMES_FOR_PREDICTION;
-          
-          // Keep buffer manageable (max 30 frames)
-          if (bufLen > maxFrames * FEATURES_PER_FRAME) {
-            frameBufferRef.current = frameBufferRef.current.slice(-maxFrames * FEATURES_PER_FRAME);
-          }
+            const maxBufLen = SEQUENCE_LENGTH * 63;
+            if (frameBufferRef.current.length > maxBufLen) {
+              frameBufferRef.current = frameBufferRef.current.slice(-maxBufLen);
+            }
 
-          // Predict when we have minimum frames (now 15 instead of 30)
-          if (bufLen >= minFrames * FEATURES_PER_FRAME) {
-            predict();
+            if (frameBufferRef.current.length >= MIN_FRAMES_FOR_PREDICTION * 63) {
+              await predict();
+            }
           }
         }
 
@@ -332,9 +215,9 @@ export function useSignInference(options: UseSignInferenceOptions = {}) {
       rafRef.current = requestAnimationFrame(processFrame);
     } catch (err) {
       console.error('Camera error:', err);
-      setError('Failed to access camera');
+      setError(err instanceof Error ? err.message : 'Failed to access camera');
     }
-  }, [extractFeatures, predict, processInterval]);
+  }, [extractLandmarks, normalizeFeatures, predict, processInterval]);
 
   const stopCamera = useCallback(() => {
     if (rafRef.current) {
@@ -351,34 +234,45 @@ export function useSignInference(options: UseSignInferenceOptions = {}) {
       videoRef.current.srcObject = null;
     }
 
+    if (handLandmarkerRef.current) {
+      handLandmarkerRef.current.close();
+      handLandmarkerRef.current = null;
+    }
+
     frameBufferRef.current = [];
-    predictionWindowRef.current = [];
-    stabilityCountRef.current = 0;
-    lastStablePredictionRef.current = '';
+    predictionHistoryRef.current = [];
+    frameCountRef.current = 0;
     setIsRunning(false);
     setCurrentPrediction(null);
+    setHandDetected(false);
 
-    console.log('🛑 Camera stopped');
+    console.log('Camera stopped');
   }, []);
 
   useEffect(() => {
     let mounted = true;
-    const initModel = async () => {
+    const init = async () => {
       try {
-        await init();
+        console.log('Loading TensorFlow.js model...');
+        const model = await tf.loadLayersModel('/model/tfjs/model.json');
+        console.log('Model loaded:', model.inputs[0].shape);
+        modelRef.current = model;
+        console.log('Model loaded! Classes:', PHRASES);
+        setIsLoading(false);
       } catch (err) {
-        if (mounted) console.error('Init error:', err);
+        console.error('Init error:', err);
+        if (mounted) {
+          setError(err instanceof Error ? err.message : 'Failed to initialize');
+        }
+        setIsLoading(false);
       }
     };
-    initModel();
+    init();
+
     return () => {
       mounted = false;
-      stopCamera();
-      handLandmarkerRef.current?.close();
-      poseLandmarkerRef.current?.close();
-      modelRef.current?.dispose();
     };
-  }, [init, stopCamera]);
+  }, []);
 
   return {
     isLoading,
