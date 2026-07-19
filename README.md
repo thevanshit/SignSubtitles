@@ -1,36 +1,101 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ISHARA - Sign Language Detection & Subtitling
 
-## Getting Started
+[![Python](https://img.shields.io/badge/Python-3.10-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-2-FF6F00?style=flat-square&logo=tensorflow&logoColor=white)](https://tensorflow.org)
+[![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=flat-square&logo=nextdotjs&logoColor=white)](https://nextjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![MediaPipe](https://img.shields.io/badge/MediaPipe-0.10-0097A7?style=flat-square&logo=mediapipe&logoColor=white)](https://mediapipe.dev)
+[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 
-First, run the development server:
+Real-time sign language recognition system that detects hand gestures from webcam video and displays subtitles. Uses an LSTM deep learning model trained on MediaPipe hand landmarks.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+## Overview
+
+ISHARA captures video from a webcam, extracts hand landmark coordinates using MediaPipe, and feeds them into a trained LSTM model to recognize sign language phrases in real time. Detected signs are displayed as subtitles on the interface.
+
+## Features
+
+- **Real-time Inference** — Webcam-based sign language detection using MediaPipe landmarks
+- **LSTM Model** — Trained on 10 sign language phrases (HELLO, HRU, FINE, YES, NO, HELP, THANK, PLEASE, SLOW, NICE)
+- **Live Subtitles** — Detected signs displayed as on-screen subtitles
+- **Hand Detection Indicator** — Visual feedback when hands are detected
+- **Modern UI** — Clean interface with camera preview and subtitle history
+
+## Project Structure
+
+```
+SignSubtitles/
+├── app/                    # Next.js frontend
+│   ├── page.tsx           # Main meeting page with camera integration
+│   ├── layout.tsx         # App layout
+│   └── globals.css        # Global styles
+├── hooks/
+│   └── useSignInference.ts   # Webcam + model inference hook
+├── store/
+│   └── meetingStore.ts    # Zustand state management
+├── train_model.py         # LSTM model training script
+├── extract_landmarks.py   # MediaPipe landmark extraction from videos
+├── convert_tfjs.py        # Convert Keras model to TensorFlow.js format
+├── test_mediapipe.py      # MediaPipe pipeline test
+├── rebuild_model.py       # Model rebuild utility
+├── sign_lstm_model.keras  # Trained LSTM model (Keras)
+├── sign_model.keras       # Alternative trained model
+├── scaler.pkl             # Feature scaler
+├── label_encoder.pkl      # Label encoder
+├── data/                  # Training data (landmarks)
+├── raw_videos/            # Source video files
+└── package.json           # Node.js dependencies
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Training Pipeline
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 1. Data Collection
+Raw sign language videos stored in `raw_videos/`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 2. Landmark Extraction
+```bash
+python extract_landmarks.py
+```
+Uses MediaPipe Holistic to extract hand landmark coordinates from videos. Outputs normalized landmark sequences to `data/`.
 
-## Learn More
+### 3. Model Training
+```bash
+python train_model.py
+```
+Trains a Sequential LSTM model with:
+- 2 LSTM layers (64 units each) with Dropout
+- Dense output layer with Softmax activation
+- Early stopping validation
+- Train/test split (80/20)
 
-To learn more about Next.js, take a look at the following resources:
+### 4. TF.js Conversion (for browser inference)
+```bash
+python convert_tfjs.py
+```
+Converts the trained Keras model to TensorFlow.js format for in-browser inference.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Running the App
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+# Install dependencies
+npm install
 
-## Deploy on Vercel
+# Start development server
+npm run dev
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Open [http://localhost:3000](http://localhost:3000) and grant camera access to start detecting signs.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Tech Stack
+
+| Component       | Technology                                |
+| --------------- | ----------------------------------------- |
+| Model Training  | Python, TensorFlow/Keras, LSTM, MediaPipe |
+| Frontend        | Next.js 14, TypeScript, Tailwind CSS      |
+| Browser ML      | TensorFlow.js, MediaPipe Hand Landmarks   |
+| State           | Zustand                                   |
+| Icons           | Lucide React                              |
+
+## License
+
+MIT License
